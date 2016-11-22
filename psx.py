@@ -257,6 +257,11 @@ def decode_shikata_ga_nai(d, all_instr_list):
                 key = (key + data) & 0x00000000FFFFFFFF
                 pass # error case
 
+            k1 = 0x000000FF & key
+            k2 = (0x0000FF00 & key) >> 8
+            k3 = (0x00FF0000 & key) >> 16
+            k4 = (0xFF000000 & key) >> 24
+
         szd = ''.join(szd)
 
         op = dis.disasm(szd, istart, istart)
