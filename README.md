@@ -2,6 +2,7 @@
 Python script to decode common encoded PowerShell scripts.
 
 Hope you find it helpful!
+
 Even more hacked together by @JohnLaTwC, Nov 2016
 v 0.6
 With apologies to @Lee_Holmes for using Python instead of PowerShell. In decoding so much PowerShell, I didn't want to risk a self-infection :)
@@ -17,6 +18,7 @@ Things this script tries to do.  Emphasis on tries.
      if the script has numerous chunks of encoded content
 * If it finds shellcode, it attempts to display it. LIMITATION: x86 shellcode only
      If you ever come across this sequence in PowerShell, you know you have shellcode
+
 ```
          [Byte[]]$z = 0xb8,0x46,0x0f,0x64...REST OF SHELLCODE;
          ...
@@ -24,21 +26,22 @@ Things this script tries to do.  Emphasis on tries.
          ...
          $w::CreateThread(0,0,$Nb7,0,0,0);
 ```
-
-     With the shellcode it tries:
+With the shellcode it tries:
      - Resolve APIs. The APIs used by shellcode gives defenders a clue as to what to look for on host.
          e.g. if you calls to winsock/wininet/winhttp APIs, you know they connected to a URL or IP
          e.g. if you see a call to WinExec / CreateProcess, you know something was downloaded and spawned
+
 ```
          push 0x0726774c         << 0x0726774c is the hash of the API text "kernel32.dll!LoadLibraryA"
          call ebp --> kernel32.dll!LoadLibraryA
 ```
-         pretty sure @stephenfewer came up with blockhash in https://github.com/rapid7/metasploit-framework/blob/master/external/source/shellcode/windows/x86/src/block/block_api.asm
+
+Pretty sure @stephenfewer came up with blockhash in https://github.com/rapid7/metasploit-framework/blob/master/external/source/shellcode/windows/x86/src/block/block_api.asm
          Rather than have a hardcoded list of API hashes, it build a dictionary based on your local binaries. 
          This means the script requires Windows as the underlying OS to do this.
-         
-     - Display ascii text for DWORD constants to assist decoding. 
+- Display ascii text for DWORD constants to assist decoding. 
          e.g. the below shows the encoding of ws2_32 [.dll] before a call to LoadLibrary
+
 ```
          push 0x00003233--> '23'
          push 0x5f327377--> '_2sw'
@@ -46,15 +49,17 @@ Things this script tries to do.  Emphasis on tries.
          push 0x0726774c--> '&wL' << garbage. this is just the API hash for 'kernel32.dll!LoadLibraryA'
          call ebp --> kernel32.dll!LoadLibraryA
 ```
-     - Display IP:port for calls to socket/Internet APIs
+- Display IP:port for calls to socket/Internet APIs
+
 ```
          push 0x68bff1c0
          push 0xbb010002--> IP 192.241.191.104:443
 ```
-     - Display a hex dump to look for strings
-     - Decode some encoded shellcode. Shellcode is often encoded.  A common one is shikata_ga_nai.
+- Display a hex dump to look for strings
+- Decode some encoded shellcode. Shellcode is often encoded.  A common one is shikata_ga_nai.
          You can disable this behavior by the -nx switch
          Here is an example of the shikata encoder in action:
+
 ```
          0x00000000 b8460f64cf       mov eax,0xcf640f46          << 4byte XOR key
          0x00000005 dbcf             fcmovne st0,st7             << execute any floating point operation to set up GetPC
@@ -69,7 +74,8 @@ Things this script tries to do.  Emphasis on tries.
          0x0000001a 91               ... garbarge bytes continue
 ```
 
-         Post decode you get something like:
+  Post decode you get something like:
+
 ```
          0x00000010 314513           xor dword [ebp + 19],eax
          0x00000013 83edfc           sub ebp,0xfffffffc
@@ -87,5 +93,5 @@ Things this script tries to do.  Emphasis on tries.
          0x00000033 0fb74a26         movzx ecx,word [edx + 38]
          ...
 ```
-     A real programmer would use an emulator (libemu).  Not this script
+A real programmer would use an emulator (libemu).  Not this script
 
