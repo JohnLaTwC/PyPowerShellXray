@@ -1,5 +1,7 @@
-## Even more hacked together by @JohnLaTwC, Nov 2016
-## v 0.6
+## Even more hacked together by @JohnLaTwC, Dec 2016
+## v 0.7, Dec 2016, decode B64 snippets
+## v 0.6, Nov 2016
+
 ## With apologies to @Lee_Holmes for using Python instead of PowerShell. In decoding so much PowerShell, I didn't want to risk a self-infection :)
 ## 
 ## This script attempts to decode encoded powershell commands.  
@@ -424,6 +426,16 @@ def xray(sz0):
         out = sz0.replace(sz + " -join ''", b64buf )
         if fVerbose:
             print("OUT: " + out)
+        return out
+
+    #find strings like this and substitute the decoded content
+    #[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('MQA6ADEAMQAxADEAMQAxADEAMQAxADEAOgAxADEAMQAxADEAMQAxADEAMQAxADoAMQAxADEAOgAxADEAMQA6AA=='
+    m = re.search('\[Text\.Encoding\]::Unicode\.GetString\(\[Convert\]::FromBase64String\(\'[A-Za-z0-9=/]*\'\)',sz0, re.IGNORECASE)
+    if m is not None:
+        g = m.group()
+        b64 = (g.split("'")[1].decode('base64'))
+        b64 = "'" + re.sub(r'[^\x01-\x7f]',r'', b64) + "'"
+        out = sz0[:m.start()] + b64 + sz0[m.end():]
         return out
 
     sz = sz1 = max(filter(None, re.split("[\\\\ '\";\)]", sz0)), key=len).strip()
