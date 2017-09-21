@@ -1,4 +1,5 @@
-## Even more hacked together by @JohnLaTwC, Dec 2016
+## Even more hacked together by @JohnLaTwC, Dec 2017
+## v 0.8, Sept 2017, add support for stored DB paths to enable shellcode API resolution when run on mac/linux
 ## v 0.7, Dec 2016, decode B64 snippets
 ## v 0.6, Nov 2016
 
@@ -83,6 +84,8 @@ import argparse
 import string
 from envi.archs.i386 import i386Disasm 
 
+szDbPath = None
+fDbLoaded = False
 fVerbose = False
 APIDict = {}
 fDecodeShellcode = True
@@ -113,7 +116,9 @@ def blockhash(szDll, szAPI):
 ## This function makes the script Windows specific. It expect Windows binaries and uses them
 ## to build up a dictionary of API hashes.  One could fix this by doing this step on a 
 ## Windows PC and then storing the API hashes in file
+## Sept 2017: support the ability to load from a DB
 def PopulateExports(APIDict, szDll):
+    global fVerbose
     from PE import PE
     import os
     fd = open(os.environ['SYSTEMROOT']+ '\\System32\\' +  szDll, 'rb')
@@ -122,6 +127,8 @@ def PopulateExports(APIDict, szDll):
         szAPI = exp[2]
         szHash = "0x%08x"%(blockhash(szDll, szAPI))
         APIDict[szHash] =  szDll + "!" + szAPI
+        if (fVerbose):
+            print("INSERT INTO APIs (module, api,hashvalue) VALUES('%s','%s','%s')" % (szDll, szAPI, szHash))
 
 ##  example:
 ##  0x00000000 b9c7060000       mov ecx,1735
@@ -201,6 +208,7 @@ def decode_shikata_ga_nai(d, all_instr_list):
     key = 0
     szMsg = 'No decoder found'
     iXorOffset = 0
+    iXorAdjust = 0
     iFPOpOffset = 0
     for i in range(0, 10):
         instr_lst = all_instr_list[i]
@@ -214,9 +222,11 @@ def decode_shikata_ga_nai(d, all_instr_list):
             fFoundFloatingPtInstr = True
             iFPOpOffset = offset
         #xor dword [edx + 24],eax 
+        if szIns.startswith('sub ') and szIns.endswith('0xfffffffc'):
+            iXorAdjust = -4
         if szIns.startswith('xor dword ['):
             fFoundXor = True
-            iXorOffset = int((szIns.split('+')[1]).split(']')[0])
+            iXorOffset = int((szIns.split('+')[1]).split(']')[0]) ##+ iXorAdjust 
             #find key operation. e.g. add esi,dword [eax + 14]
             for j in range(1,3):
                 keyop_instr_lst = all_instr_list[i+j]
@@ -226,14 +236,14 @@ def decode_shikata_ga_nai(d, all_instr_list):
                     istart = keyop_instr_lst[3]
                     break
         # mov eax,0x4193fabc 
-        if szIns.startswith('mov ') and szIns.find('0x') > 0:
+        if szIns.startswith('mov ') and szIns.find('0x') > 0 and not fFoundMov:
             fFoundMov = True
             k1 = sd[offset + 0x1]
             k2 = sd[offset + 0x2]
             k3 = sd[offset + 0x3]
             k4 = sd[offset + 0x4]
             key = k1 | (k2 << 8) | (k3 << 16)| (k4 << 24)
-        # mov eax,0x4193fabc 
+        # mov cl,110
         if szIns.startswith('mov ') and szIns.find('cl,') > 0:
             fFoundCounter = True
             iLen = int(szIns.split(',')[1])
@@ -300,11 +310,26 @@ def process_instructions_impl(d, offset, va):
 def process_instructions(d):
     return process_instructions_impl(d,0,0)
 
-def dumpShellcode(d):
-    global fDecodeShellcode
+def prepareAPIs():
     global APIDict
-    szOut = ''
-    if len(APIDict) == 0:
+    global szDbPath
+    global fDbLoaded
+
+    ## if APIs are being loaded from a DB, then do that now
+    if (szDbPath is not None and not fDbLoaded):
+        import sqlite3
+        db = sqlite3.connect(szDbPath)
+        cursor = db.cursor()
+        cursor.execute('''SELECT module, api, hashvalue FROM APIs''')
+        all_rows = cursor.fetchall()
+        for row in all_rows:
+            szHash = row[2]
+            szDll = row[0]
+            szAPI = row[1]
+            APIDict[szHash] =  szDll + "!" + szAPI
+        db.close()
+        fDbLoaded = True
+    else:
         PopulateExports(APIDict, 'kernel32.dll')
         PopulateExports(APIDict, 'ws2_32.dll')
         PopulateExports(APIDict, 'ole32.dll')
@@ -313,6 +338,13 @@ def dumpShellcode(d):
         PopulateExports(APIDict, 'urlmon.dll')
         PopulateExports(APIDict, 'winhttp.dll')
         PopulateExports(APIDict, 'wininet.dll')
+
+def dumpShellcode(d):
+    global fDecodeShellcode
+    global APIDict
+    szOut = ''
+    if len(APIDict) == 0:
+        prepareAPIs()
         ## for szKey in APIDict.keys():
         ##      print ("%s  %s" % (szKey, APIDict[szKey]))
 
@@ -512,15 +544,23 @@ if __name__ == '__main__':
     parser.add_argument('--file','-f', help='Read input from a file', action='store', type=str, default=None)
     parser.add_argument('--verbose','-v', help='Enable verbose mode', action='store_true', default=False)
     parser.add_argument('--noshellcode','-nx', help='Don\'t attempt to decode encoded shellcode', action='store_false', default=True)
+    parser.add_argument('--dumpapis','-api', help='Dump APIs and hashes', action='store_true', default=False)
+    parser.add_argument('--apidb','-db', help='Load APIs and hashes from a DB', action='store', type=str,default=None)
     args = parser.parse_args()
 
     psz = sz = None
     fVerbose = args.verbose
     fDecodeShellcode = args.noshellcode
+    szDbPath = args.apidb
+
+    if args.dumpapis:
+        fVerbose = True
+        prepareAPIs()
+        sys.exit(0)
 
     if args.file is not None:
         file = open(args.file, 'r')
-        sz = ''.join(file.readlines())
+        sz = ' '.join(file.readlines())
     else:
         sz = ' '.join(sys.stdin.readlines())
         
