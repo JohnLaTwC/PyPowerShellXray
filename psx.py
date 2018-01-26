@@ -1,4 +1,5 @@
-## Even more hacked together by @JohnLaTwC, Dec 2017
+## Even more hacked together by @JohnLaTwC, Jan 2018
+## v 0.9, Jan 2018, fix various broken decode bugs
 ## v 0.8, Sept 2017, add support for stored DB paths to enable shellcode API resolution when run on mac/linux
 ## v 0.7, Dec 2016, decode B64 snippets
 ## v 0.6, Nov 2016
@@ -506,10 +507,19 @@ def xray(sz0):
             else:
                 # Test to see if we can dissasemble at least a min amount of instructions
                 # that suggest we have valid x86
-                outputparamlst = process_instructions(sz)
-                if outputparamlst is not None and len(outputparamlst[0]) > 15:
-                    if fVerbose: print('Found Possible Shellcode')
-                    out = dumpShellcode(sz)
+
+                # if we find curly braces, that suggest the result is code not asm
+                if sz.count('{') + sz.count('}') >= 1:
+                    if len(sz) != len(sz0):
+                        p1 = sz0[0:sz0.find(sz1)]
+                        p2 = out
+                        p3 = sz0[sz0.find(sz1) + len(sz1):]
+                        out = p1 + p2 + p3
+                else:
+                    outputparamlst = process_instructions(sz)
+                    if outputparamlst is not None and len(outputparamlst[0]) > 15:
+                        if fVerbose: print('Found Possible Shellcode')
+                        out = dumpShellcode(sz)
 
         else:
             try:
@@ -527,6 +537,8 @@ def xray(sz0):
         if fVerbose: print('Found Possible Shellcode')
         
         ## 0x6a,0x0,0x53,0xff,0xd5 --> 6f 6a 0 53 ff d5
+        ## handle leading @( in Ps1 dropped by 06951164119c7b1704b3ab8d0474e609e852785e4e71fbf26061389f9ab12c6d. thx @r00tninja and @James_inthe_box 
+        sz = sz.replace('@','').replace('(','')
         szbytes =  ''.join([chr(int(''.join(c), 16)) for c in sz.split(',')])
 
         out = dumpShellcode(szbytes)
