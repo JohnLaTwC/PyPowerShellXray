@@ -1,4 +1,5 @@
-## Even more hacked together by @JohnLaTwC, Jan 2018
+## Even more hacked together by @JohnLaTwC, Apr 2018
+## v 0.91, Apr 2018, fix decode bug on 7535ec491d1a54d474589b461bc216735a6b1bf1be2be952c00c5d8a1407a757 (https://twitter.com/Qutluch/status/986604980181188608)
 ## v 0.9, Jan 2018, fix various broken decode bugs
 ## v 0.8, Sept 2017, add support for stored DB paths to enable shellcode API resolution when run on mac/linux
 ## v 0.7, Dec 2016, decode B64 snippets
@@ -478,6 +479,11 @@ def xray(sz0):
     m = h.match(sz)
     if m is not None: 
         out = sz = sz.decode('base64')
+
+        if fVerbose:
+            szdisplay = ' '.join([hex(ord(c))[2:].zfill(2) for c in out])
+            print('Hex dump: ' + szdisplay)
+
         fNotUnicode = False
         for i in range(0,10,2):
             if sz[i] in string.printable and ord(sz[i+1]) == 0x0:
@@ -509,7 +515,7 @@ def xray(sz0):
                 # that suggest we have valid x86
 
                 # if we find curly braces, that suggest the result is code not asm
-                if sz.count('{') + sz.count('}') >= 1:
+                if sz.count('{') >=1 and sz.count('}') >= 1:
                     if len(sz) != len(sz0):
                         p1 = sz0[0:sz0.find(sz1)]
                         p2 = out
