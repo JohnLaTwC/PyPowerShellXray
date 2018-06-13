@@ -1,4 +1,5 @@
-## Even more hacked together by @JohnLaTwC, Apr 2018
+## Even more hacked together by @JohnLaTwC, Jun 2018
+## v 0.92, Jun 2018, fix decode bug on https://twitter.com/James_inthe_box/status/1005136969037316096
 ## v 0.91, Apr 2018, fix decode bug on 7535ec491d1a54d474589b461bc216735a6b1bf1be2be952c00c5d8a1407a757 (https://twitter.com/Qutluch/status/986604980181188608)
 ## v 0.9, Jan 2018, fix various broken decode bugs
 ## v 0.8, Sept 2017, add support for stored DB paths to enable shellcode API resolution when run on mac/linux
@@ -85,6 +86,8 @@ import re
 import argparse
 import string
 from envi.archs.i386 import i386Disasm 
+
+MAX_DISTANCE_FROM_KEYWORD = 100
 
 szDbPath = None
 fDbLoaded = False
@@ -443,6 +446,7 @@ def dumpShellcode(d):
 
 def xray(sz0):
     global fVerbose
+    global MAX_DISTANCE_FROM_KEYWORD 
     out = ''
     #first transform any char[](dec, dec) strings:
     ##example: [char[]](77,105,99,114,111,115,111,102,116,92,87,105,110,100,111,119,115,92,84,101,109,112,108,97,116,101,115,92,108,111,103,46,116,120,116) -join '')")){
@@ -479,8 +483,10 @@ def xray(sz0):
     m = h.match(sz)
     if m is not None: 
         out = sz = sz.decode('base64')
+        pos0 = sz0.find(sz1) # position of encoded chunk
 
         if fVerbose:
+            print('chunk start index = %d' % pos0)
             szdisplay = ' '.join([hex(ord(c))[2:].zfill(2) for c in out])
             print('Hex dump: ' + szdisplay)
 
@@ -502,20 +508,32 @@ def xray(sz0):
                 p3 = re.sub(r'[^\x01-\x7f]',r'', p3)
                 out = p1 + p2 + p3
             elif re.search('deflate',sz0, re.IGNORECASE):
-                if fVerbose: print('Found Deflate')
-                sz2 = str(zlib.decompress( sz, -15))
-                p1 = sz0[0:sz0.find(sz1)]
-                p1 = re.sub(r'[^\x01-\x7f]',r'', p1)
-                p2 = sz2
-                p3 = sz0[sz0.find(sz1) + len(sz1):]
-                p3 = re.sub(r'[^\x01-\x7f]',r'', p3)
-                out = p1 + p2 + p3
+                m2 = re.search('deflate',sz0, re.IGNORECASE)
+                if fVerbose: print('Found Deflate at %d' % m2.start(0))
+                if abs(m2.start(0) - pos0) < MAX_DISTANCE_FROM_KEYWORD:
+                    sz2 = str(zlib.decompress( sz, -15))
+                    p1 = sz0[0:sz0.find(sz1)]
+                    p1 = re.sub(r'[^\x01-\x7f]',r'', p1)
+                    p2 = sz2
+                    p3 = sz0[sz0.find(sz1) + len(sz1):]
+                    p3 = re.sub(r'[^\x01-\x7f]',r'', p3)
+                    out = p1 + p2 + p3
+                else:
+                    if fVerbose: print('Keyword found too far away from encoded content %d' % abs(m2.start(0) - pos0))
+                    outputparamlst = process_instructions(sz)
+                    if outputparamlst is not None and len(outputparamlst[0]) > 15:
+                        if fVerbose: print('Found Possible Shellcode')
+                        out = dumpShellcode(sz)
             else:
                 # Test to see if we can dissasemble at least a min amount of instructions
                 # that suggest we have valid x86
 
                 # if we find curly braces, that suggest the result is code not asm
-                if sz.count('{') >=1 and sz.count('}') >= 1:
+                fUnprintableFound = False
+                for i in range(0,10):
+                    if sz[i] not in string.printable:
+                        fUnprintableFound = True
+                if not fUnprintableFound and (sz.count('{') >=1 and sz.count('}') >= 1): ## check how much binary code is there as well
                     if len(sz) != len(sz0):
                         p1 = sz0[0:sz0.find(sz1)]
                         p2 = out
